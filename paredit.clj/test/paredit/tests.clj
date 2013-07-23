@@ -294,6 +294,37 @@
   "(a)\n;foo\n\n^:true b" 10 "^:true b"
   "(a)\n;foo\n\n^:true b" 17 "^:true b"))
 
+(deftest shift-whitespace-tests
+  (are 
+    [spec delta expected]
+    (is (= expected (let [{:keys [text offset]} (text-spec-to-text spec)
+                          actual (-> text parse parsed-root-loc
+                                   (loc-for-offset offset)
+                                   (shift-whitespace delta)
+                                   zip/root
+                                   node-text)]
+                      actual)))
+    "fo|o\nbar" 0 "foo\nbar" 
+    "fo|o\nbar" 2 "foo\n  bar"
+    "fo|o;comment\nbar" 2 "foo;comment\n  bar"
+    "fo|o;comment\n bar" 2 "foo;comment\n   bar"
+    "fo|o;comment\n  bar" -2 "foo;comment\nbar"
+    "fo|o\nbar" -2 "foo\nbar"
+    "fo|o\nbar baz" 2 "foo\n  bar baz"))
+
+(deftest col-tests
+  (are 
+    [text-spec expected-col] 
+    (let [{:keys [text offset]} (text-spec-to-text text-spec)]
+      (is (= expected-col (t/col text offset))))
+    "|foo" 0
+    "f|oo" 1
+    "foo|" 3
+    "foo|\n" 3
+    "foo\n|" 0
+    "foo\n \n|" 0
+    "foo\n \n |" 1))
+
 (defn pts []
   #_(normalized-selection-tests)
   (t/line-stop-tests)

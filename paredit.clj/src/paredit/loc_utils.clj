@@ -1,6 +1,7 @@
 (ns paredit.loc-utils
   (:use paredit.parser)
-  (:require [clojure.zip :as zip]))
+  (:require [clojure.zip :as zip])
+  (:require [paredit.text-utils :as t]))
 
 #_(set! *warn-on-reflection* true)
 (defn xml-vzip
@@ -226,3 +227,72 @@
     (filter 
       #(= :root (loc-tag (zip/up %)))
       (iterate zip/up loc))))
+
+(defn after-comment? [loc]
+  (and (zip/left loc)
+       (= :comment (:tag (zip/node (zip/left loc))))))
+
+(defn next-newline-loc 
+  "Find the next loc which is a newline"
+  [loc]
+  (loop [loc loc]
+    (when-not (zip/end? loc)
+      (cond 
+        (and (= :whitespace (:tag (zip/node loc)))
+             (.contains (loc-text loc) "\n"))
+          loc
+        (after-comment? loc)
+          (if (= :whitespace (:tag (zip/node loc)))
+            loc
+            (zip/left 
+              (zip/insert-left
+                loc
+                {:tag :whitespace
+                 :content [""]})))
+        :else
+          (recur (zip/next loc))))))
+
+(defn shift-nl-whitespace 
+  "Loc is at a line start. Add delta (may be negative) whitespaces
+   to it."
+  [loc delta]
+  (zip/replace 
+    loc 
+    (assoc-in
+      (zip/node loc) 
+      [:content]
+      [(if (after-comment? loc)
+         (t/adjust-padding (loc-text loc) delta \space)
+         (let [prefix (subs (loc-text loc) 0 (.lastIndexOf (loc-text loc) "\n"))]
+           (str prefix
+                (t/adjust-padding (subs (loc-text loc) (count prefix)) delta \space))))])))
+
+(defn shift-whitespace 
+  "Starting at loc, find all subsequent lines and add delta (may be negative)
+   whitespaces to them. The loc returned is at the end of a depth-first search"
+  [loc delta]
+  (loop [loc loc]
+    (if (zip/end? loc)
+      loc
+      (recur (zip/next
+               (let [after-comment? (and (zip/left loc)
+                                         (= :comment (:tag (zip/node (zip/left loc)))))]
+                 (cond
+                   (and (= :whitespace (:tag (zip/node loc)))
+                        (or (.contains (loc-text loc) "\n")
+                            after-comment?))
+                     (zip/replace 
+                       loc (assoc-in
+                             (zip/node loc) 
+                             [:content]
+                             [(if after-comment?
+                                (t/adjust-padding (loc-text loc) delta \space)
+                                (str \newline
+                                     (t/adjust-padding (subs (loc-text loc) 1) delta \space)))]))
+                     after-comment?
+                     ;; we follow a comment but there's no whitespace
+                       (zip/insert-left
+                         loc
+                         {:tag :whitespace
+                          :content [(t/adjust-padding "" delta \space)]})
+                     :else loc)))))))
