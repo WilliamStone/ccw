@@ -55,51 +55,9 @@
 ; - a comment "stops" the propagation of the shift if after the comment we're
 ;     at the first column
 ; - inserting parens or double quotes or chars shifts the whole content: baad
+; - Suppr. at the start of a document => String index out of range: -1
 ; TEST CASES:
 ; - after a comment
- 
-
-(defn propagate-delta [loc col delta]
-  (let [depth (count (zip/path loc))
-        ;_ (println "depth" depth)
-        [loc st] (loop [l loc]
-         ;          (println "l node:" (with-out-str (pr (zip/node l))))
-         ;          (println "(count (zip/path l))" (count (zip/path l)))
-         ;           (println "(lu/newline? l)" (lu/newline? l))
-                   (if (> depth (count (zip/path l)))
-                     [l :continue]
-                     (let [[l st] (cond 
-                                    (lu/newline? l)
-                                    (if (lu/whitespace? l)
-                                      (let [blanks (let [text (lu/loc-text l)]
-                                                     (if (.contains text "\n")
-                                                       (- (count text)
-                                                          (inc (.lastIndexOf text "\n")))
-                                                       (count text)))]
-                                        (if (<= col blanks)
-                                          [(lu/shift-nl-whitespace l delta) :continue]
-                                          [l :stop]))
-                                      ; l is not whitespace
-                                      (if (and (zero? col) (pos? delta))
-                                        [(lu/shift-nl-whitespace l delta) :continue]
-                                        [l :stop]))
-                                    :else
-                                    [l :continue]
-                                    ; TODO recursive call
-                                    )]
-                       (cond
-                         (= :stop st)             [l :stop]
-                         (nil? (zip/next l))     [l :continue]
-                         (zip/end? (zip/next l)) [l :stop]
-                         :else                    (recur (zip/next l))))))]
-    (if (= :stop st)
-      [loc :stop]
-      (if-let [next-loc (if-let [p (zip/up loc)] (zip/right p))]
-        (recur next-loc
-               (lu/loc-col next-loc) ; FIXME may not work if :cumulated-count is not correct 
-               ; OR MAY RETURN old col
-               delta)
-        [loc :stop]))))
   
 (defn noop-diff? [diff]
   (and (zero? (:length diff))
@@ -132,7 +90,7 @@
         ;_ (println "loc-node:" (zip/node loc))
         ]
     (when loc
-      (let [[shifted-loc _] (propagate-delta loc col delta)
+      (let [[shifted-loc _] (lu/propagate-delta loc col delta)
             shifted-text (lu/node-text (zip/root shifted-loc))
             ;_ (println "shifted-text:" (with-out-str (pr shifted-text)))
             ;_ (println "text        :" (with-out-str (pr text)))
