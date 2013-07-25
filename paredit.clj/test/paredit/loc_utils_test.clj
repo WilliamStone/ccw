@@ -87,3 +87,19 @@
     "foo;comment\n|  \n bar" -1 "foo;comment\n  \nbar"
     "foo;comment\n|  \n bar" -2 "foo;comment\n  \nbar"
     ))
+
+(deftest propagate-delta-tests
+  (are [spec col delta expected]
+    
+    (let [{:keys [text offset]} (u/spec->text spec)
+          [loc _] (-> text 
+                       parse
+                       l/parsed-root-loc
+                       (l/loc-for-offset offset)
+                       (l/propagate-delta col delta))]
+      (is (= expected (-> loc z/root l/node-text))))
+    
+    " |a\nb"  0  1 " a\n b"
+    "|a\n b"  1 -1 "a\nb"
+    
+    ))

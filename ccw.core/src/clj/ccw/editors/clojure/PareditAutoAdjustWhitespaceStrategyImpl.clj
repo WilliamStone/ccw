@@ -86,7 +86,7 @@
         loc (lu/loc-for-offset rloc offset)
         loc (if (< (lu/start-offset loc) offset) (zip/right loc) loc)
         col (- (lu/loc-col loc) delta)
-        ;_ (println "col" col)
+        _ (println "col" col)
         ;_ (println "loc-node:" (zip/node loc))
         ]
     (when loc
