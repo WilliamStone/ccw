@@ -332,3 +332,4 @@
                ; OR MAY RETURN old col
                delta)
         [loc :stop])))))
+        
