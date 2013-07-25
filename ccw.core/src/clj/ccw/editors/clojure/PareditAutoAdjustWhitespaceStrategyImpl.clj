@@ -18,27 +18,6 @@
 (defn init
   [editor preference-store] (ref {:editor editor :prefs-store preference-store}))
 
-#_(defn- right-or-up [loc]
-  (when loc (or (zip/right loc) (recur (zip/up loc)))))
-(defn next-code
-  "Return loc if it's code, or the next on the right which is code, or nil"
-  [loc]
-  (when loc
-    (if-not (= :whitespace (:tag (zip/node loc)))
-      loc
-      (recur (zip/right loc)))))
-
-(defn find-node
-  "Return loc if it's code, or the next on the right which is code, or nil"
-  [loc]
-  (let [line-stop (tu/line-stop (lu/node-text (zip/root loc)) (lu/start-offset loc))]
-    ;(println "line-stop:" line-stop)
-    (loop [loc (next-code loc)]
-      (when (and loc (< (lu/start-offset loc) line-stop))
-        (if (.contains (lu/loc-text loc) "\n")
-          loc
-          (recur (next-code (zip/right loc))))))))
-
 ; TODO l'offset fonctionne pas si plusieurs niveaux d'indentation
 ; TODO backspace ne fonctionne pas devant une form top level
 
@@ -50,39 +29,77 @@
 ;- si au moins une ligne plus à gauche que delta : c'est fini
 ;- sinon, on recommence avec le père de loc-p, en partant de l'offset de fin (initial) de loc-p, et avec delta
 
-;(defn tree-at [loc] (-> loc zip/node lu/parsed-root-loc))
+; HYPOTHESE : l'offset qui se decale marque le debut d'un noeud (= offset-start)
+;             SI PAS VRAI => ON FAIT RIEN
+;             mais non, pas toujours possible, par ex. si on ajoute
+;             un espace au milieu d'espaces, ou une lettre au milieu d'un symbole
+;             => la regle c'est: si (not= offset-start) => on prend le frere suivant
+;
+; ATTENTION, dans les freres il y aura des :comment qui vont poser probleme
+;            il faut les traiter specialement, je le crains
+;
+; Plutôt que de faire des duplications, plutôt implementer un decalage
+; rapide par offset (pas optimise pour l'instant) pour se retrouver sur le
+; bon noeud. Ou implémenter un zipper intelligent qui calcule ce qu'il faut
+; pour les offsets (au moment de la construction du noeud, rajouter
+; les meta donnees :cumulative-count)
+;
+; =>SIMPLIFIER l'algorithme en utilisant shift-whitespace sur les freres de l'offset,
+;              puis éventuellement les freres du pere si la fin du père a été poussée à gauche, etc.
+;              et toujours garder le fait que que dès qu'on tombe sur un élément plus à "gauche" qu'offset,
+;              on arrête la propagation dans les freres (et ça bloque aussi la progagation dans les peres, du coup)
+;              (si on fait pas ça, alors ouille, on parcourra systématiquement tout le fichier)
 
-(defn path-count [loc] (count (zip/path loc)))
+
+; BUGS:
+; - a comment "stops" the propagation of the shift if after the comment we're
+;     at the first column
+; - inserting parens or double quotes or chars shifts the whole content: baad
+; TEST CASES:
+; - after a comment
+ 
 
 (defn propagate-delta [loc col delta]
-  (println "propagate-delta[loc-text" (str "'" (lu/loc-text loc) "'") ",col: " col ", delta:" delta)
-  (let [loc-p (zip/up loc)
-        _ (println "loc-p" loc-p)
-        loc-p-path (cond
-                     (nil? loc-p) [(zip/node loc)]
-                     (zip/up loc-p) (zip/path loc-p)
-                     :else [(zip/node loc-p)])
-        loc-p-path-cnt (count loc-p-path)
-        ;loc-p-parents (count loc-p-path)
+  (let [depth (count (zip/path loc))
+        ;_ (println "depth" depth)
         [loc st] (loop [l loc]
-                   (if-let [next-nl-loc (when-not (zip/end? l)
-                                          (lu/next-newline-loc l))]
-                     (if ;(> (path-count next-nl-loc) loc-p-parents)
-                         (= (take loc-p-path-cnt (zip/path next-nl-loc))
-                            loc-p-path)
-                       (if (<= col (tu/col (lu/loc-text next-nl-loc) 
-                                           (count (lu/loc-text next-nl-loc) ; using count because a space can span many lines
-                                                                            ))) 
-                         (recur (zip/next (lu/shift-nl-whitespace next-nl-loc delta)))
-                         [l :stop])
-                       [l :ok])
-                     [l :ok]))]
-    (if (and (= :ok st) #_(zip/up loc-p))
-      (if-let [loc (zip/right (first (filter #(= loc-p-path-cnt (path-count %)) 
-                                             (iterate zip/up loc))))]
-        (recur loc (- (lu/loc-col loc) delta) delta)
-        loc)
-      loc)))
+         ;          (println "l node:" (with-out-str (pr (zip/node l))))
+         ;          (println "(count (zip/path l))" (count (zip/path l)))
+         ;           (println "(lu/newline? l)" (lu/newline? l))
+                   (if (> depth (count (zip/path l)))
+                     [l :continue]
+                     (let [[l st] (cond 
+                                    (lu/newline? l)
+                                    (if (lu/whitespace? l)
+                                      (let [blanks (let [text (lu/loc-text l)]
+                                                     (if (.contains text "\n")
+                                                       (- (count text)
+                                                          (inc (.lastIndexOf text "\n")))
+                                                       (count text)))]
+                                        (if (<= col blanks)
+                                          [(lu/shift-nl-whitespace l delta) :continue]
+                                          [l :stop]))
+                                      ; l is not whitespace
+                                      (if (and (zero? col) (pos? delta))
+                                        [(lu/shift-nl-whitespace l delta) :continue]
+                                        [l :stop]))
+                                    :else
+                                    [l :continue]
+                                    ; TODO recursive call
+                                    )]
+                       (cond
+                         (= :stop st)             [l :stop]
+                         (nil? (zip/next l))     [l :continue]
+                         (zip/end? (zip/next l)) [l :stop]
+                         :else                    (recur (zip/next l))))))]
+    (if (= :stop st)
+      [loc :stop]
+      (if-let [next-loc (if-let [p (zip/up loc)] (zip/right p))]
+        (recur next-loc
+               (lu/loc-col next-loc) ; FIXME may not work if :cumulated-count is not correct 
+               ; OR MAY RETURN old col
+               delta)
+        [loc :stop]))))
   
 (defn noop-diff? [diff]
   (and (zero? (:length diff))
@@ -94,25 +111,39 @@
   (let [^IClojureEditor editor (-> this .state deref :editor)
         {:keys [parse-tree buffer]} (.getParseState editor)
         text-before (lu/node-text parse-tree)
+        ;_ (println "text-before:" (str "'" text-before "'"))
         parse-tree (-> buffer
                      (p/edit-buffer (.offset command) (.length command) (.text command))
                      (p/buffer-parse-tree 0))
         text (lu/node-text parse-tree)
+        ;_ (println "text:" (str "'" text "'"))
         offset (+ (.offset command) (count (.text command)))
         offset-before (+ (.offset command) (.length command))
         col (tu/col text offset)
         delta (- col
-                 (tu/col text-before offset-before))
+                 (tu/col text-before offset-before)
+                 )
+        ;_ (println "delta:" delta)
         rloc (lu/parsed-root-loc parse-tree)
-        loc (lu/loc-for-offset rloc offset)]
+        loc (lu/loc-for-offset rloc offset)
+        loc (if (< (lu/start-offset loc) offset) (zip/right loc) loc)
+        col (- (lu/loc-col loc) delta)
+        ;_ (println "col" col)
+        ;_ (println "loc-node:" (zip/node loc))
+        ]
     (when loc
-      (let [shifted-loc (propagate-delta loc col delta)
+      (let [[shifted-loc _] (propagate-delta loc col delta)
             shifted-text (lu/node-text (zip/root shifted-loc))
+            ;_ (println "shifted-text:" (with-out-str (pr shifted-text)))
+            ;_ (println "text        :" (with-out-str (pr text)))
             loc-diff (tu/text-diff text shifted-text)
+            ;_ (println "loc-diff" (with-out-str (pr loc-diff)))
             diff (update-in 
                    loc-diff
-                   [:offset] - delta)]
-        (when-not (noop-diff? diff)
+                   [:offset] + (.length command) (- (count (.text command))))
+            ;_ (println "diff" (with-out-str (pr diff)))
+            ]
+        (when-not (noop-diff? loc-diff)
           (.addCommand command 
             (:offset diff)
             (:length diff)

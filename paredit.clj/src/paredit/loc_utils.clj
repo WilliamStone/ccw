@@ -228,9 +228,31 @@
       #(= :root (loc-tag (zip/up %)))
       (iterate zip/up loc))))
 
-(defn after-comment? [loc]
-  (and (zip/left loc)
-       (= :comment (:tag (zip/node (zip/left loc))))))
+(defn comment? [loc] (and loc (= :comment (:tag (zip/node loc)))))
+
+(defn after-comment? [loc] (comment? (zip/left loc)))
+
+(defn whitespace? [loc]
+  (and loc (= :whitespace (:tag (zip/node loc)))))
+
+#_(defn newline? [loc] (and loc
+                          (whitespace? loc)
+                          (.contains (loc-text loc "\n"))))
+
+(defn newline? 
+  "Is loc the start of a newline?
+   Can be:
+   - a :whitespace loc containing an \n
+   - a :whitespace loc containing no \n (after a :comment)
+   - any other loc starting the line, after a :comment
+   This can get tricky, you'll have to consider the 3
+   cases in your code, but that's the way things are currently
+   implemented, sorry."
+  [loc]
+  (and loc
+       (or (after-comment? loc)
+           (and (whitespace? loc)
+                (.contains (loc-text loc) "\n")))))
 
 (defn next-newline-loc 
   "Find the next loc which is a newline"
@@ -269,8 +291,13 @@
 
 (defn shift-whitespace 
   "Starting at loc, find all subsequent lines and add delta (may be negative)
-   whitespaces to them. The loc returned is at the end of a depth-first search"
-  [loc delta]
+   whitespaces to them, unless the whitespace in front of the line is less than
+   col. The loc returned is at the end of a depth-first search.
+   Return a vector [loc shifted-end?]
+   - shifted-end? is a truthy value indicated whether the last line was
+     shifted, or not (will not be shifted is somewhere before, some content
+     was indented on the left of the loc"
+  [loc col delta]
   (loop [loc loc]
     (if (zip/end? loc)
       loc
