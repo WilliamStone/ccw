@@ -267,7 +267,7 @@
   [loc]
   (and loc
        (or
-         (root? (z/prev loc))
+         ;(root? (z/prev loc))
          (after-comment? loc)
          (whitespace-newline? loc))))
 
@@ -292,12 +292,14 @@
       loc)))
 
 (defn propagate-delta [loc col delta]
-  (let [depth (count (z/path loc))
+  (if (newline? loc)
+    [loc :stop]
+    (let [depth (count (z/path loc))
         ;_ (println "depth" depth)
         [loc st] (loop [l loc]
-         ;          (println "l node:" (with-out-str (pr (z/node l))))
-         ;          (println "(count (z/path l))" (count (z/path l)))
-         ;           (println "(newline? l)" (lu/newline? l))
+;                   (println "l node:" (pr-str (paredit.tests.utils/clean-tree (z/node l))))
+;                   (println "(count (z/path l))" (count (z/path l)))
+;                   (println "(newline? l)" (newline? l))
                    (if (> depth (count (z/path l)))
                      [l :continue]
                      (let [[l st] (cond 
@@ -329,4 +331,4 @@
                (loc-col next-loc) ; FIXME may not work if :cumulated-count is not correct 
                ; OR MAY RETURN old col
                delta)
-        [loc :stop]))))
+        [loc :stop])))))

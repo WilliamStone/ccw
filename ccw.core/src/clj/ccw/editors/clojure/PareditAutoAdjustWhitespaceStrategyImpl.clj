@@ -5,6 +5,7 @@
   (:require [paredit.loc-utils :as lu])
   (:require [paredit.text-utils :as tu])
   (:require [paredit.parser :as p])
+  (:require [clojure.string :as s])
   (:require [clojure.zip :as zip])
   (:import
     [org.eclipse.jface.text IAutoEditStrategy
@@ -58,10 +59,43 @@
 ; - Suppr. at the start of a document => String index out of range: -1
 ; TEST CASES:
 ; - after a comment
-  
+
+(defn next-node-loc
+  "Get the loc for the node on the right, or if at the end of the parent,
+   on the right of the parent. Skips punct nodes. Return nil if at the far end."
+  [loc]
+  (if-let [r (zip/right loc)]
+    (if (lu/punct-loc? r)
+      (recur r)
+      r)
+    (when-let [p (zip/up loc)]
+      (recur p))))
+
+(defn find-loc-to-shift
+  "Starting with loc, find to the right, and to the right of parent node, etc.
+   a non-whitespace loc. If a newline is found before, return nil."
+  [loc]
+  (let [continue-search (fn [loc] 
+                          (println "analysing loc" (pr-str (clean-tree (zip/node loc))))
+                          (let [r (and loc (not (lu/whitespace-newline? loc)))]
+                            (println "result of analyse: continue-search" r)
+                            r))
+        locs (take-while continue-search (iterate next-node-loc loc))]
+    (first (remove lu/whitespace? locs))))
+
 (defn noop-diff? [diff]
   (and (zero? (:length diff))
        (zero? (count (:text diff)))))
+
+(defn whitespace-end-of-line?
+  "For text s, starting at offset, is the remaining of the
+   line only made of whitespace?"
+  [s offset]
+  (let [eol-offset (tu/line-stop s offset)
+        eol (subs s offset eol-offset)]
+    (s/blank? eol)))
+
+(use 'paredit.tests.utils)
 
 (defn customizeDocumentCommand 
   "Work only if no command has been added via (.addCommand)"
@@ -79,18 +113,26 @@
         offset-before (+ (.offset command) (.length command))
         col (tu/col text offset)
         delta (- col
-                 (tu/col text-before offset-before)
-                 )
-        ;_ (println "delta:" delta)
+                 (tu/col text-before offset-before))
+        _ (println "delta:" delta)
         rloc (lu/parsed-root-loc parse-tree)
         loc (lu/loc-for-offset rloc offset)
-        loc (if (< (lu/start-offset loc) offset) (zip/right loc) loc)
-        col (- (lu/loc-col loc) delta)
-        _ (println "col" col)
-        ;_ (println "loc-node:" (zip/node loc))
+        _ (if loc (println "loc for offset:" 
+                           (pr-str (clean-tree (zip/node loc)))))
+        loc (if (or 
+                  (= (lu/start-offset loc) offset)
+                  (whitespace-end-of-line? text offset))
+              loc
+              (next-node-loc loc))
+        loc (find-loc-to-shift loc)
+        _ (when-not loc (println "no loc found"))
         ]
-    (when loc
-      (let [[shifted-loc _] (lu/propagate-delta loc col delta)
+    (when  loc
+      (let [col (- (lu/loc-col loc) delta)
+            _ (println "final loc node:" (pr-str (clean-tree (zip/node loc))))
+            _ (println "col" col)
+            _ (println "(lu/loc-col loc)" (lu/loc-col loc))
+            [shifted-loc _] (lu/propagate-delta loc col delta)
             shifted-text (lu/node-text (zip/root shifted-loc))
             ;_ (println "shifted-text:" (with-out-str (pr shifted-text)))
             ;_ (println "text        :" (with-out-str (pr text)))

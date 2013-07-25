@@ -67,7 +67,7 @@
   (testing (str title-prefix " " (second command) " (\"" (first command) "\")")
     (doseq [[input expected] (get command 2)]
       (spy "++++++++++++++++++++")
-      (spy (u/u/spec->text input))
+      (spy (u/spec->text input))
       (let [{text :text :as t} (u/spec->text input)
             buffer (edit-buffer nil 0 -1 text)
             parse-tree (buffer-parse-tree buffer :for-test)]
@@ -260,24 +260,6 @@
   "(a)\n;foo\n\n^:true b" 9 "(a)"
   "(a)\n;foo\n\n^:true b" 10 "^:true b"
   "(a)\n;foo\n\n^:true b" 17 "^:true b"))
-
-(deftest shift-whitespace-tests
-  (are 
-    [spec delta expected]
-    (is (= expected (let [{:keys [text offset]} (u/spec->text spec)
-                          actual (-> text parse parsed-root-loc
-                                   (loc-for-offset offset)
-                                   (shift-whitespace delta)
-                                   zip/root
-                                   node-text)]
-                      actual)))
-    "fo|o\nbar" 0 "foo\nbar" 
-    "fo|o\nbar" 2 "foo\n  bar"
-    "fo|o;comment\nbar" 2 "foo;comment\n  bar"
-    "fo|o;comment\n bar" 2 "foo;comment\n   bar"
-    "fo|o;comment\n  bar" -2 "foo;comment\nbar"
-    "fo|o\nbar" -2 "foo\nbar"
-    "fo|o\nbar baz" 2 "foo\n  bar baz"))
 
 (deftest col-tests
   (are 

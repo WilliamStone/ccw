@@ -14,31 +14,27 @@
                                    l/parsed-root-loc
                                    (l/loc-for-offset offset))]
                       (l/newline? loc))))
-    "|foo\nbar" true
+    "|foo\nbar" false ; it's not a newline in the sense
+                      ; that's it's not a new line following another one
     "foo|\nbar" true
     "foo\n|bar" false
 
-    "|foo \n bar" true
     "foo| \n bar" true
     "foo\n |bar" false
 
-    "|(foo\nbar)" true
     "(|foo\nbar)" false
     "(foo|\nbar)" true
     "(foo\n|bar)" false
     
-    "|(foo;bar\nbaz)" true
     "(|foo;bar\nbaz)" false
     "(foo|;bar\nbaz)" false
     "(foo;bar\n|baz)" true ; remember, comments "own" newlines
 
-    "|(foo;bar\n baz)" true
     "(|foo;bar\n baz)" false
     "(foo|;bar\n baz)" false
     "(foo;bar\n| baz)" true ; remember, comments "own" newlines
     "(foo;bar\n |baz)" false ; remember, comments "own" newlines
 
-    "|(foo;bar\n\n baz)" true
     "(|foo;bar\n\n baz)" false
     "(foo|;bar\n\n baz)" false
     "(foo;bar\n|\n baz)" true ; remember, comments "own" newlines
@@ -100,6 +96,22 @@
       (is (= expected (-> loc z/root l/node-text))))
     
     " |a\nb"  0  1 " a\n b"
-    "|a\n b"  1 -1 "a\nb"
+    "( |foo\nbar)" 1 1 "( foo\nbar)"
+    "( |foo\n bar)" 1 1 "( foo\n  bar)"
+    "( |foo\n  bar)" 1 1 "( foo\n   bar)"
+    "( |foo\n\n  bar)" 1 1 "( foo\n\n   bar)"
+    "( |foo\n \n  bar)" 1 1 "( foo\n \n   bar)"
+
+    "( |foo\n\n  (bar\n    baz))" 1 1 "( foo\n\n   (bar\n     baz))"
+
+    "|a\n b"   1 -1 "a\nb"
+     
+    " a|\n b"  1  1 " a\n b"
+    
+    "  |\n b\n c" 1 1 "  \n b\n c"
+    " |(\n) b\n  c" 0 1 " (\n ) b\n   c"
+
+    " |\n(\na)" 0 1 " \n(\na)"     
     
     ))
+

@@ -19,7 +19,7 @@
   (cond
     (string? tree) tree
     :else (-> tree 
-            (dissoc :build-id :count :content-cumulative-count :abstract-node :broken?)
+            (select-keys [:tag :content])
             (update-in [:content] #(map clean-tree %)))))
 
 (defn spec->text 
